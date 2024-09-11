@@ -5,32 +5,96 @@ library(GGally)
 library(corrplot)
 library(patchwork)
 
-data <- vroom("train.csv")
+## Reading in the Data
+traindata <- vroom("train.csv")
+testdata <- vroom("test.csv")
 
+nrow(traindata)
 
-corr <- corrplot(cor(data[sapply(data, is.numeric)]), type = "upper")
+#### EDA
 
-humid <- ggplot(data, mapping=aes(x=humidity, y = count)) +
+# Correlation Plot
+corr <- corrplot(cor(traindata[sapply(traindata, is.numeric)]), type = "upper")
+
+# Humidity vs Count scatterplot with trendline
+humid <- ggplot(traindata, mapping=aes(x=humidity, y = count)) +
   geom_point() +
   geom_smooth(se=F)
 
-temp <- ggplot(data, mapping=aes(x=temp, y = count)) +
+# Temperature vs Count scatterplot with trendline
+temp <- ggplot(traindata, mapping=aes(x=temp, y = count)) +
   geom_point() +
   geom_smooth(se=F)
 
-weather <- ggplot(data, mapping = aes(x = weather)) +
+# Weather bar graph
+weather <- ggplot(traindata, mapping = aes(x = weather)) +
   geom_bar()
-
-season <- ggplot(data, mapping=aes(x=season)) +
-  geom_bar()
-
-holiday <- ggplot(data, mapping = aes(x = holiday)) +
-  geom_bar()
-
-
-(holiday + weather) / (temp + humid)
-
+# only 1 day where weather == 4
 sum(data$weather == 4)
 
-ggplot(data, mapping = aes(x = windspeed, y = count)) +
+# Wind vs Count bar graph
+wind <- ggplot(traindata, mapping = aes(x = windspeed, y = count)) +
   geom_point()
+
+# Season bar graph
+season <- ggplot(traindata, mapping=aes(x=season)) +
+  geom_bar()
+
+# Holiday bar graph
+holiday <- ggplot(traindata, mapping = aes(x = holiday)) +
+  geom_bar()
+
+# Making the 2x2 plot
+(holiday + weather) / (temp + humid)
+
+
+colnames(traindata)
+traindata$season <- as.factor(traindata$season)
+traindata$holiday <- as.factor(traindata$holiday)
+traindata$weather <- as.factor(traindata$weather)
+
+testdata$season <- as.factor(testdata$season)
+testdata$holiday <- as.factor(testdata$holiday)
+testdata$weather <- as.factor(testdata$weather)
+
+
+
+#### Linear Regression Model
+
+my_linear_model <- linear_reg() %>% #Type of model
+  set_engine("lm") %>% # Engine = What R function to use
+  set_mode("regression") %>% # Regression just means quantitative response
+  fit(formula=log(count)~datetime+season+holiday+workingday+weather+
+        temp+humidity+windspeed, data=traindata)
+
+
+## Generate Predictions Using Linear Model
+bike_predictions <- predict(my_linear_model,
+                            new_data=testdata) # Use fit to predict
+bike_predictions <- exp(bike_predictions) ## Look at the output
+
+min(bike_predictions)
+## Format the Predictions for Submission to Kaggle
+kaggle_submission <- bike_predictions %>%
+  bind_cols(., testdata) %>% #Bind predictions with test data
+  select(datetime, .pred) %>% #Just keep datetime and prediction variables
+  rename(count=.pred) %>% #rename pred to count (for submission to Kaggle)
+  mutate(count=pmax(0, count)) %>% #pointwise max of (0, prediction)
+  mutate(datetime=as.character(format(datetime))) #needed for right format to Kaggle
+
+## Write out file
+vroom_write(x=kaggle_submission, file="./LinearPreds.csv", delim=",")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
