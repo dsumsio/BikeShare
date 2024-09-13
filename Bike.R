@@ -87,6 +87,29 @@ vroom_write(x=kaggle_submission, file="./LinearPreds.csv", delim=",")
 
 
 
+library(poissonreg)
+
+my_pois_model <- poisson_reg() %>% #Type of model3
+  set_engine("glm") %>% # GLM = generalized linear model4
+  set_mode("regression") %>%
+fit(formula=count~datetime+season+holiday+workingday+weather+
+      temp+humidity+windspeed, data=traindata)
+
+## Generate Predictions Using Linear Model8
+bike_predictions <- predict(my_pois_model,
+                            new_data=testdata) # Use fit to predict10
+bike_predictions ## Look at the output
+
+
+## Format the Predictions for Submission to Kaggle
+pois_kaggle_submission <- bike_predictions %>%
+  bind_cols(., testdata) %>% #Bind predictions with test data
+  select(datetime, .pred) %>% #Just keep datetime and prediction va
+  rename(count=.pred) %>% #rename pred to count (for submission to
+  mutate(datetime=as.character(format(datetime))) #needed for right
+
+## Write out the file8
+vroom_write(x=pois_kaggle_submission, file="./PoissonPreds.csv", delim=",")
 
 
 
