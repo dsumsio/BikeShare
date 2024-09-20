@@ -1,15 +1,114 @@
-library(tidyverse)
-library(tidymodels)
-library(vroom)
+
 library(GGally)
 library(corrplot)
 library(patchwork)
+library(dplyr)
+
+library(tidyverse)
+library(tidymodels)
+library(vroom)
+
 
 ## Reading in the Data
 traindata <- vroom("train.csv")
 testdata <- vroom("test.csv")
 
-nrow(traindata)
+traindata <- traindata %>%
+  select(-registered, -casual)
+traindata$count <- log(traindata$count)
+
+## Define a recipe
+bike_recipe <- recipe(count~., data = traindata) %>%
+  step_mutate(weather =ifelse(weather==4,3, weather)) %>% # recodes weather 4 to 3
+  step_mutate(weather = factor(weather, levels = c(1,2,3))) %>% # makes weather a factor
+  step_mutate(season = factor(season, levels = c(1,2,3,4))) %>% # makes season a factor
+  step_date(datetime, features = "dow") %>% # gets day of week
+  step_time(datetime, features ="hour") %>% # gets hour
+  step_mutate(datetime_hour, factor(datetime_hour, levels = c(0:23))) # sets hour to factor
+
+## Define a Model
+lin_model <- linear_reg() %>%
+  set_engine("lm") %>%
+  set_mode("regression")
+
+## Combine into a Workflow and fit
+bike_workflow <- workflow() %>%
+  add_recipe(bike_recipe) %>%
+  add_model(lin_model) %>%
+  fit(data=traindata)
+
+## Run all the steps on test data and change back to normal data
+lin_preds_log <- predict(bike_workflow, new_data = testdata)
+lin_preds <- exp(lin_preds_log)
+
+## Format the Predictions for Submission to Kaggle
+kaggle_submission <-  lin_preds %>%
+  bind_cols(., testdata) %>% #Bind predictions with test data
+  select(datetime, .pred) %>% #Just keep datetime and prediction variables
+  rename(count=.pred) %>% #rename pred to count (for submission to Kaggle)
+  mutate(count=pmax(0, count)) %>% #pointwise max of (0, prediction)
+  mutate(datetime=as.character(format(datetime))) #needed for right format to Kaggle
+
+## Write out file
+vroom_write(x=kaggle_submission, file="./LinearPreds10.csv", delim=",")
+
+
+
+###################################### Penalized Regression
+library(tidyverse)
+library(tidymodels)
+library(vroom)
+
+## Reading in the Data
+traindata <- vroom("train.csv")
+testdata <- vroom("test.csv")
+
+traindata <- traindata %>%
+  select(-registered, -casual)
+traindata$count <- log(traindata$count)
+
+## Create a recipe
+bike_recipe2 <- recipe(count~., data = traindata) %>%
+  step_mutate(weather =ifelse(weather==4,3, weather)) %>% # recodes weather 4 to 3
+  step_mutate(weather = factor(weather, levels = c(1,2,3))) %>% # makes weather a factor
+  step_mutate(season = factor(season, levels = c(1,2,3,4))) %>% # makes season a factor
+  step_date(datetime, features = "dow") %>% # gets day of week
+  step_time(datetime, features ="hour") %>% # gets hour
+  step_mutate(datetime_hour = factor(datetime_hour, levels = c(0:23))) %>% # sets hour to factor
+  step_rm(datetime) %>%
+  step_dummy(all_nominal_predictors()) %>% # make dummy variables
+  step_normalize(all_numeric_predictors())# mean = 0, sd = 1
+  
+# prepped_recipe <- prep(bike_recipe2)
+# baked_train <- bake(prepped_recipe, new_data=traindata)
+# baked_test <- bake(prepped_recipe, new_data = testdata)
+
+## Penalized regression model
+preg_model <- linear_reg(penalty=0.001, mixture=1) %>% #Set model and tuning
+  set_engine("glmnet") # Function to fit in R
+
+preg_wf <- workflow() %>%
+  add_recipe(bike_recipe2) %>%
+  add_model(preg_model) %>%
+  fit(data=traindata)
+
+preg_preds_log <- predict(preg_wf, new_data=testdata)
+preg_preds <- exp(preg_preds_log)
+
+## Format the Predictions for Submission to Kaggle
+kaggle_submission <-  preg_preds %>%
+  bind_cols(., testdata) %>% #Bind predictions with test data
+  select(datetime, .pred) %>% #Just keep datetime and prediction variables
+  rename(count=.pred) %>% #rename pred to count (for submission to Kaggle)
+  mutate(count=pmax(0, count)) %>% #pointwise max of (0, prediction)
+  mutate(datetime=as.character(format(datetime))) #needed for right format to Kaggle
+
+## Write out file
+vroom_write(x=kaggle_submission, file="./preg_preds12.csv", delim=",")
+
+
+
+
 
 #### EDA
 
