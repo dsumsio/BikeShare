@@ -79,21 +79,42 @@ bike_recipe2 <- recipe(count~., data = traindata) %>%
   step_dummy(all_nominal_predictors()) %>% # make dummy variables
   step_normalize(all_numeric_predictors())# mean = 0, sd = 1
   
-# prepped_recipe <- prep(bike_recipe2)
-# baked_train <- bake(prepped_recipe, new_data=traindata)
-# baked_test <- bake(prepped_recipe, new_data = testdata)
-
 ## Penalized regression model
-preg_model <- linear_reg(penalty=0.001, mixture=1) %>% #Set model and tuning
+preg_model <- linear_reg(penalty=tune(), mixture=tune()) %>% #Set model and tuning
   set_engine("glmnet") # Function to fit in R
 
 preg_wf <- workflow() %>%
   add_recipe(bike_recipe2) %>%
-  add_model(preg_model) %>%
+  add_model(preg_model) 
+
+## Grid of values to tune over
+grid_of_tuning_params <- grid_regular(penalty(),
+                                      mixture(),
+                                      levels = 5)
+
+## Split data for CV
+folds <- vfold_cv(traindata, v = 10, repeats = 1)
+
+## Run the CV
+CV_results <- preg_wf %>%
+  tune_grid(resamples = folds,
+            grid = grid_of_tuning_params,
+            metrics = metric_set(rmse, mae, rsq))
+
+## Find Best Tuning Parameters
+bestTune <- CV_results %>%
+  select_best(metric = "rmse")
+
+## Finalize the Workflow & fit it
+final_wf <- preg_wf %>%
+  finalize_workflow(bestTune) %>%
   fit(data=traindata)
 
-preg_preds_log <- predict(preg_wf, new_data=testdata)
-preg_preds <- exp(preg_preds_log)
+## predict
+preds <- final_wf %>%
+  predict(new_data = testdata)
+
+preg_preds <- exp(preds)
 
 ## Format the Predictions for Submission to Kaggle
 kaggle_submission <-  preg_preds %>%
@@ -104,7 +125,7 @@ kaggle_submission <-  preg_preds %>%
   mutate(datetime=as.character(format(datetime))) #needed for right format to Kaggle
 
 ## Write out file
-vroom_write(x=kaggle_submission, file="./preg_preds12.csv", delim=",")
+vroom_write(x=kaggle_submission, file="./cv2.csv", delim=",")
 
 
 
